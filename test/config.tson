@@ -1,0 +1,23 @@
+// This is the main config file
+{
+  // Port to run the server
+  port: 5669,
+
+  // Enable feature X
+  enableFeatureX: true,
+
+  // Optional nested object
+  database: {
+    host: "localhost", // DB host
+    port: 5432,
+    user: "admin", // Username
+    password: "hunter2" // Top secret!
+  },
+
+  // List of features (can be typed as string[])
+  features: [
+    "auth",
+    "logging",
+    "reactivity"
+  ]
+}

@@ -1,0 +1,10 @@
+export function loadTSONConfig(cwd = process.cwd()) {
+  const files = ["tson.config.tson", ".tsonrc"];
+  for (const file of files) {
+    const fullPath = `${cwd}/${file}`;
+    if (fs.existsSync(fullPath)) {
+      return parseTSON(fullPath, { strict: true });
+    }
+  }
+  return {};
+}
