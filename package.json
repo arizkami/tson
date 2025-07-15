@@ -1,7 +1,7 @@
 {
   "name": "tson",
   "version": "0.1.0",
-  "description": "A JSON-like configuration format with comments and cleaner syntax",
+  "description": "A Typescript object notation parser with support for comments and TypeScript types.",
   "author": "Ariz Kamizuki",
   "license": "BSD-3-Clause",
   "type": "module",

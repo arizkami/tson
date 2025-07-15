@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { parseTSON, validateTSON, stringifyTSON, TSONParseError } from './tson.js';
 import fs from 'fs';
 import path from 'path';
@@ -105,7 +103,7 @@ function main() {
 
   // Check if file exists
   if (!fs.existsSync(options.file)) {
-    console.error(`❌ File not found: ${options.file}`);
+    console.error(`File not found: ${options.file}`);
     process.exit(1);
   }
 
