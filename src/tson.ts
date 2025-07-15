@@ -29,6 +29,16 @@ export class TSONParseError extends Error {
 }
 
 /**
+ * Helper function to safely get error message from unknown error
+ */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+/**
  * Parse a TSON (TypeScript Object Notation) file
  * TSON is JSON with support for comments and trailing commas
  * 
@@ -51,7 +61,7 @@ export function parseTSON(filePath: string, options: TSONParseOptions = {}): any
   try {
     raw = fs.readFileSync(filePath, "utf-8");
   } catch (err) {
-    const error = new TSONParseError(`Failed to read file: ${err.message}`, filePath);
+    const error = new TSONParseError(`Failed to read file: ${getErrorMessage(err)}`, filePath);
     if (strict) throw error;
     console.error(`${error.message}`);
     return null;
@@ -91,7 +101,7 @@ export function parseTSONString(
   try {
     return JSON.parse(cleaned);
   } catch (err) {
-    const errorMessage = `TSON parse error${filePath ? ` in ${filePath}` : ''}: ${err.message}`;
+    const errorMessage = `TSON parse error${filePath ? ` in ${filePath}` : ''}: ${getErrorMessage(err)}`;
     const error = new TSONParseError(errorMessage, filePath);
     
     if (strict) throw error;
@@ -110,6 +120,11 @@ function removeComments(text: string): string {
   
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
     const line = lines[lineNum];
+    if (!line) {
+      result.push('');
+      continue;
+    }
+    
     let inString = false;
     let stringChar = '';
     let newLine = '';
