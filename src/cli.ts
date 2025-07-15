@@ -11,6 +11,16 @@ interface CLIOptions {
   help: boolean;
 }
 
+/**
+ * Helper function to safely get error message from unknown error
+ */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 function parseArgs(args: string[]): CLIOptions {
   const options: CLIOptions = {
     file: '',
@@ -22,6 +32,8 @@ function parseArgs(args: string[]): CLIOptions {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    
+    if (!arg) continue; // Skip undefined args
     
     switch (arg) {
       case '--strict':
@@ -35,7 +47,10 @@ function parseArgs(args: string[]): CLIOptions {
         break;
       case '--output':
       case '-o':
-        options.output = args[++i];
+        const nextArg = args[++i];
+        if (nextArg) {
+          options.output = nextArg;
+        }
         break;
       case '--help':
       case '-h':
@@ -154,7 +169,7 @@ function main() {
         console.error(`   at line ${error.line}${error.column ? `, column ${error.column}` : ''}`);
       }
     } else {
-      console.error("Unexpected error:", error.message);
+      console.error("Unexpected error:", getErrorMessage(error));
     }
     process.exit(1);
   }

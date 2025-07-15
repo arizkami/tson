@@ -1,22 +1,36 @@
 {
   "name": "tson",
   "version": "0.1.0",
-  "description": "A Typescript object notation parser with support for comments and TypeScript types.",
+  "description": "A TypeScript object notation parser with support for comments and trailing commas.",
   "author": "Ariz Kamizuki",
   "license": "BSD-3-Clause",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "module": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "bin": {
     "tson-cli": "./dist/cli.js"
   },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
   "private": false,
   "scripts": {
-    "build": "bun build src/tson.ts --outdir dist",
-    "build:cli": "bun build src/cli.ts --outdir dist --outfile cli.js",
-    "dev": "bun src/tson.ts",
-    "test": "bun test"
+    "build": "tsc -p tsconfig.build.json",
+    "build:cli": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "dev": "tsx src/tson.ts",
+    "test": "bun test",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "tson",
@@ -24,13 +38,28 @@
     "config",
     "parser",
     "comments",
-    "typescript"
+    "typescript",
+    "trailing-commas",
+    "configuration"
   ],
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
-  }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arizkami/tson.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arizkami/tson/issues"
+  },
+  "homepage": "https://github.com/arizkami/tson#readme"
 }
