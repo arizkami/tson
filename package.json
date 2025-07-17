@@ -1,6 +1,6 @@
 {
   "name": "tson",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A TypeScript object notation parser with support for comments and trailing commas.",
   "author": "Ariz Kamizuki",
   "license": "BSD-3-Clause",
