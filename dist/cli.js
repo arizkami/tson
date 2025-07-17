@@ -15,7 +15,11 @@ function parseArgs(args) {
         strict: false,
         validate: false,
         format: false,
-        help: false
+        help: false,
+        allowConst: true,
+        allowImports: true,
+        disableComments: false,
+        disableTrailingCommas: false
     };
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
@@ -30,6 +34,18 @@ function parseArgs(args) {
                 break;
             case '--format':
                 options.format = true;
+                break;
+            case '--no-const':
+                options.allowConst = false;
+                break;
+            case '--no-imports':
+                options.allowImports = false;
+                break;
+            case '--no-comments':
+                options.disableComments = true;
+                break;
+            case '--no-trailing-commas':
+                options.disableTrailingCommas = true;
                 break;
             case '--output':
             case '-o':
@@ -57,17 +73,22 @@ TSON Parser CLI Tool
 Usage: tson-cli <file.tson> [options]
 
 Options:
-  --strict        Throw errors instead of returning null
-  --validate      Only validate the file, don't parse
-  --format        Format and prettify the output
-  --output, -o    Output to file instead of console
-  --help, -h      Show this help message
+  --strict              Throw errors instead of returning null
+  --validate            Only validate the file, don't parse
+  --format              Format and prettify the output
+  --output, -o          Output to file instead of console
+  --no-const            Disable const declaration support
+  --no-imports          Disable import statement support
+  --no-comments         Disable comment support
+  --no-trailing-commas  Disable trailing comma support
+  --help, -h            Show this help message
 
 Examples:
   tson-cli config.tson
   tson-cli config.tson --strict
   tson-cli config.tson --validate
   tson-cli config.tson --format -o formatted.json
+  tson-cli config.tson --no-const --no-imports
   `);
 }
 function formatOutput(result, format) {
@@ -103,11 +124,21 @@ function main() {
         console.warn("Warning: File doesn't have .tson extension");
     }
     try {
+        const parseOptions = {
+            strict: options.strict,
+            allowConst: options.allowConst,
+            allowImports: options.allowImports,
+            allowComments: !options.disableComments,
+            allowTrailingCommas: !options.disableTrailingCommas
+        };
         if (options.validate) {
-            // Validation mode
+            // Validation mode - use strict parsing for validation
             const isValid = validateTSON(options.file);
             if (isValid) {
                 console.log("TSON file is valid");
+                if (options.allowConst || options.allowImports) {
+                    console.log("✓ Supports const declarations and imports");
+                }
                 process.exit(0);
             }
             else {
@@ -117,7 +148,7 @@ function main() {
         }
         else {
             // Parse mode
-            const result = parseTSON(options.file, { strict: options.strict });
+            const result = parseTSON(options.file, parseOptions);
             if (result === null) {
                 process.exit(1);
             }
@@ -135,6 +166,21 @@ function main() {
                 }
                 else {
                     console.dir(result, { depth: null, colors: true });
+                }
+            }
+            // Show feature usage summary
+            if (!options.validate) {
+                const features = [];
+                if (options.allowConst)
+                    features.push("const declarations");
+                if (options.allowImports)
+                    features.push("import statements");
+                if (!options.disableComments)
+                    features.push("comments");
+                if (!options.disableTrailingCommas)
+                    features.push("trailing commas");
+                if (features.length > 0) {
+                    console.log(`\n✓ Parsed with support for: ${features.join(", ")}`);
                 }
             }
         }

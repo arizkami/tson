@@ -6,6 +6,10 @@ export interface TSONParseOptions {
     allowTrailingCommas?: boolean;
     /** Allow single-line comments starting with // (default: true) */
     allowComments?: boolean;
+    /** Allow const declarations (default: true) */
+    allowConst?: boolean;
+    /** Allow import statements (default: true) */
+    allowImports?: boolean;
     /** Throw errors instead of returning null on parse failure (default: false) */
     strict?: boolean;
 }
@@ -20,7 +24,7 @@ export declare class TSONParseError extends Error {
 }
 /**
  * Parse a TSON (TypeScript Object Notation) file
- * TSON is JSON with support for comments and trailing commas
+ * TSON is JSON with support for comments, trailing commas, const declarations, and imports
  *
  * @param filePath Path to the .tson file
  * @param options Parse options
@@ -55,6 +59,8 @@ export declare function stringifyTSON(obj: any, options?: {
     indent?: number | string;
     addComments?: boolean;
     trailingCommas?: boolean;
+    addImports?: boolean;
+    addConsts?: boolean;
 }): string;
 export declare function isTSONParseError(error: any): error is TSONParseError;
 declare const _default: {

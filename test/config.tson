@@ -1,5 +1,27 @@
+// Import statements for external dependencies
+import { readFileSync } from "fs";
+import path from "path";
+import { DatabaseConfig } from "./types";
+
+// Constants that can be referenced throughout the file
+const API_VERSION = "v1";
+const DEFAULT_TIMEOUT = 5000;
+const BASE_URL = "https://api.example.com";
+
 // This is the main config file
 {
+  // API Configuration
+  api: {
+    version: API_VERSION,
+    baseUrl: BASE_URL,
+    timeout: DEFAULT_TIMEOUT,
+    endpoints: {
+      users: "/users",
+      auth: "/auth",
+      data: "/data"
+    }
+  },
+
   // Port to run the server
   port: 5669,
 
@@ -11,13 +33,27 @@
     host: "localhost", // DB host
     port: 5432,
     user: "admin", // Username
-    password: "hunter2" // Top secret!
+    password: "hunter2", // Top secret!
+    timeout: DEFAULT_TIMEOUT
   },
 
   // List of features (can be typed as string[])
   features: [
     "auth",
     "logging",
-    "reactivity"
-  ]
+    "reactivity",
+    "api-" + API_VERSION
+  ],
+
+  // Environment-specific settings
+  environment: {
+    development: {
+      debug: true,
+      logLevel: "verbose"
+    },
+    production: {
+      debug: false,
+      logLevel: "error"
+    }
+  }
 }

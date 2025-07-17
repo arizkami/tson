@@ -25,14 +25,14 @@ function getErrorMessage(error) {
 }
 /**
  * Parse a TSON (TypeScript Object Notation) file
- * TSON is JSON with support for comments and trailing commas
+ * TSON is JSON with support for comments, trailing commas, const declarations, and imports
  *
  * @param filePath Path to the .tson file
  * @param options Parse options
  * @returns Parsed object or null if parsing fails (in non-strict mode)
  */
 export function parseTSON(filePath, options = {}) {
-    const { allowTrailingCommas = true, allowComments = true, strict = false } = options;
+    const { allowTrailingCommas = true, allowComments = true, allowConst = true, allowImports = true, strict = false } = options;
     // Validate file exists
     if (!fs.existsSync(filePath)) {
         const error = new TSONParseError(`File not found: ${filePath}`, filePath);
@@ -62,11 +62,19 @@ export function parseTSON(filePath, options = {}) {
  * @returns Parsed object or null if parsing fails (in non-strict mode)
  */
 export function parseTSONString(content, options = {}) {
-    const { allowTrailingCommas = true, allowComments = true, strict = false, filePath } = options;
+    const { allowTrailingCommas = true, allowComments = true, allowConst = true, allowImports = true, strict = false, filePath } = options;
     let cleaned = content;
+    // Remove import statements if enabled
+    if (allowImports) {
+        cleaned = removeImports(cleaned);
+    }
     // Remove comments if enabled
     if (allowComments) {
         cleaned = removeComments(cleaned);
+    }
+    // Process const declarations if enabled
+    if (allowConst) {
+        cleaned = processConstDeclarations(cleaned);
     }
     // Add quotes to unquoted object keys
     cleaned = cleaned.replace(/(\w+)\s*:/g, '"$1":');
@@ -85,6 +93,61 @@ export function parseTSONString(content, options = {}) {
         console.error(`${errorMessage}`);
         return null;
     }
+}
+/**
+ * Remove import statements while preserving line structure
+ */
+function removeImports(text) {
+    const lines = text.split('\n');
+    const result = [];
+    for (const line of lines) {
+        // Remove import statements (both single and multi-line)
+        if (line.trim().startsWith('import ')) {
+            result.push(''); // Keep line structure
+        }
+        else {
+            result.push(line);
+        }
+    }
+    return result.join('\n');
+}
+/**
+ * Process const declarations and convert them to object properties
+ */
+function processConstDeclarations(text) {
+    const lines = text.split('\n');
+    const result = [];
+    const constants = {};
+    for (const line of lines) {
+        const trimmed = line.trim();
+        // Match const declarations: const NAME = VALUE;
+        const constMatch = trimmed.match(/^const\s+(\w+)\s*=\s*(.+);?$/);
+        if (constMatch) {
+            const [, name, value] = constMatch;
+            try {
+                // Try to parse the value as JSON
+                const parsedValue = JSON.parse((value || '').replace(/'/g, '"'));
+                if (name)
+                    constants[name] = parsedValue;
+            }
+            catch {
+                // If parsing fails, treat as string
+                if (name && value)
+                    constants[name] = value.replace(/['";]/g, '');
+            }
+            result.push(''); // Keep line structure
+        }
+        else {
+            // Replace const references with their values
+            let processedLine = line;
+            for (const [name, value] of Object.entries(constants)) {
+                const regex = new RegExp(`\\b${name}\\b`, 'g');
+                processedLine = processedLine.replace(regex, JSON.stringify(value));
+            }
+            result.push(processedLine);
+        }
+    }
+    return result.join('\n');
 }
 /**
  * Remove single-line comments (// ...) while preserving strings
@@ -163,7 +226,7 @@ export function validateTSON(filePath) {
  * @returns TSON string
  */
 export function stringifyTSON(obj, options = {}) {
-    const { indent = 2, addComments = false, trailingCommas = true } = options;
+    const { indent = 2, addComments = false, trailingCommas = true, addImports = false, addConsts = false } = options;
     let result = JSON.stringify(obj, null, indent);
     // Remove quotes from simple object keys
     result = result.replace(/"(\w+)":/g, '$1:');
@@ -172,6 +235,14 @@ export function stringifyTSON(obj, options = {}) {
         result = result.replace(/([}\]])/g, ',$1');
         result = result.replace(/,([}\]])/g, '$1'); // Remove double commas
         result = result.replace(/([^,\s])(\s*[}\]])/g, '$1,$2'); // Add trailing commas
+    }
+    // Add imports if requested
+    if (addImports) {
+        result = 'import { readFileSync } from "fs";\nimport path from "path";\n\n' + result;
+    }
+    // Add const declarations if requested
+    if (addConsts) {
+        result = 'const API_VERSION = "v1";\nconst DEFAULT_TIMEOUT = 5000;\n\n' + result;
     }
     // Add header comment if requested
     if (addComments) {
