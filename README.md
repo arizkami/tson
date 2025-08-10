@@ -45,15 +45,16 @@ const BASE_URL = "https://api.example.com";
 ## 📦 Installation
 
 ```bash
-npm install tson
+npm install @mikofure/tson
+
 ```
 
 Or with other package managers:
 
 ```bash
-yarn add tson
-bun add tson
-pnpm add tson
+yarn add @mikofure/tson
+bun add @mikofure/tson
+pnpm add @mikofure/tson
 ```
 
 ## 🚀 Quick Start

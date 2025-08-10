@@ -1,0 +1,306 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Is this a prerelease?'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: Build Package
+    runs-on: ubuntu-latest
+    
+    outputs:
+      version: ${{ steps.package-version.outputs.version }}
+      tag: ${{ steps.package-version.outputs.tag }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+    
+    - name: Setup Node.js for publishing
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        registry-url: 'https://registry.npmjs.org'
+    
+    - name: Install dependencies
+      run: |
+        bun install --frozen-lockfile
+        bun add -g rimraf
+    
+    - name: Run type checking
+      run: bun run typecheck
+    
+    - name: Build project
+      run: bun run build
+    
+    - name: Run tests
+      run: bun test
+    
+    - name: Get package version
+      id: package-version
+      run: |
+        VERSION=$(node -p "require('./package.json').version")
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+        echo "Package version: $VERSION"
+    
+    - name: Create distribution package
+      run: bun pack
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: package-build
+        path: |
+          dist/
+          tson-*.tgz
+          package.json
+          README.md
+        retention-days: 30
+
+  test-package:
+    name: Test Package Installation
+    runs-on: ${{ matrix.os }}
+    needs: build
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [18.x, 20.x, 22.x]
+    
+    steps:
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: package-build
+    
+    - name: Test package installation and usage
+      run: |
+        # Create test directory
+        mkdir test-package
+        cd test-package
+        
+        # Initialize bun project
+        bun init -y
+        
+        # Install the built package
+        bun add ../tson-*.tgz
+        
+        # Test CommonJS import
+        bun -e "const tson = require('tson'); console.log('CommonJS import successful');"
+        
+        # Test CLI installation
+        bunx tson-cli --help
+        
+        # Create test TSON file
+        echo '{ "test": "package-installation" }' > test.tson
+        
+        # Test CLI functionality
+        bunx tson-cli test.tson
+        
+        echo "Package installation test completed successfully"
+      shell: bash
+
+  publish-npm:
+    name: Publish to NPM
+    runs-on: ubuntu-latest
+    needs: [build, test-package]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+    
+    environment:
+      name: npm-production
+      url: https://www.npmjs.com/package/@mikofure/tson
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+    
+    - name: Setup Node.js for publishing
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        registry-url: 'https://registry.npmjs.org'
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: package-build
+    
+    - name: Install dependencies
+      run: bun install --frozen-lockfile
+    
+    - name: Verify package contents
+      run: |
+        echo "Package contents:"
+        npm pack --dry-run
+        
+        echo "\nPackage size:"
+        npm pack --dry-run | grep -E '^npm notice package size:'
+    
+    - name: Publish to NPM (stable)
+      if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')"
+      run: npm publish
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    
+    - name: Publish to NPM (prerelease)
+      if: "contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc')"
+      run: npm publish --tag next
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, test-package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    permissions:
+      contents: write
+      discussions: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: package-build
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Get the previous tag
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "Generating changelog from $PREVIOUS_TAG to ${{ github.ref_name }}"
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD)
+        else
+          echo "No previous tag found, generating changelog from first commit"
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)")
+        fi
+        
+        # Save changelog to file
+        echo "$CHANGELOG" > CHANGELOG.md
+        
+        # Set output for GitHub release
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: Release ${{ github.ref_name }}
+        body: |
+          ## Changes in ${{ github.ref_name }}
+          
+          ${{ steps.changelog.outputs.changelog }}
+          
+          ## Installation
+          
+          ```bash
+          npm install tson@${{ needs.build.outputs.version }}
+          ```
+          
+          ## CLI Installation
+          
+          ```bash
+          npm install -g tson@${{ needs.build.outputs.version }}
+          ```
+          
+          ## What's Changed
+          
+          Full Changelog: https://github.com/${{ github.repository }}/compare/${{ steps.changelog.outputs.previous_tag }}...${{ github.ref_name }}
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+    
+    - name: Upload release assets
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./tson-${{ needs.build.outputs.version }}.tgz
+        asset_name: tson-${{ needs.build.outputs.version }}.tgz
+        asset_content_type: application/gzip
+
+  notify:
+    name: Notify Release
+    runs-on: ubuntu-latest
+    needs: [publish-npm, create-github-release]
+    if: always() && (needs.publish-npm.result == 'success' || needs.create-github-release.result == 'success')
+    
+    steps:
+    - name: Notify success
+      run: |
+        echo "🎉 TSON ${{ needs.build.outputs.version }} has been successfully released!"
+        echo "📦 NPM: https://www.npmjs.com/package/@mikofure/tson"
+        echo "🏷️ GitHub: https://github.com/${{ github.repository }}/releases/tag/${{ needs.build.outputs.tag }}"
+
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [publish-npm, create-github-release]
+    if: always()
+    
+    steps:
+    - name: Delete artifacts
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            run_id: context.runId,
+          });
+          
+          for (const artifact of artifacts.data.artifacts) {
+            if (artifact.name === 'package-build') {
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+              console.log(`Deleted artifact: ${artifact.name}`);
+            }
+          }
