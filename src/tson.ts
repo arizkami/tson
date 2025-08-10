@@ -1,5 +1,5 @@
 import fs from "fs";
-// import path from "path";
+import path from "path";
 
 /**
  * Configuration options for TSON parsing
@@ -13,8 +13,26 @@ export interface TSONParseOptions {
   allowConst?: boolean;
   /** Allow import statements (default: true) */
   allowImports?: boolean;
+  /** Allow TSON file imports for data combination (default: true) */
+  allowTSONImports?: boolean;
   /** Throw errors instead of returning null on parse failure (default: false) */
   strict?: boolean;
+  /** Base directory for resolving relative imports (default: process.cwd()) */
+  baseDir?: string;
+}
+
+/**
+ * Compilation options for TSON to JSON
+ */
+export interface TSONCompileOptions {
+  /** Output directory for compiled JSON files */
+  outputDir?: string;
+  /** Whether to minify the output JSON (default: false) */
+  minify?: boolean;
+  /** Whether to preserve comments in a separate .meta.json file (default: false) */
+  preserveComments?: boolean;
+  /** File extension for output files (default: '.json') */
+  outputExtension?: string;
 }
 
 /**
@@ -51,7 +69,7 @@ function getErrorMessage(error: unknown): string {
  * @returns Parsed object or null if parsing fails (in non-strict mode)
  */
 export function parseTSON(filePath: string, options: TSONParseOptions = {}): any {
-  const { allowTrailingCommas = true, allowComments = true, allowConst = true, allowImports = true, strict = false } = options;
+  const { allowTrailingCommas = true, allowComments = true, allowConst = true, allowImports = true, allowTSONImports = true, strict = false, baseDir = process.cwd() } = options;
 
   // Validate file exists
   if (!fs.existsSync(filePath)) {
@@ -71,7 +89,7 @@ export function parseTSON(filePath: string, options: TSONParseOptions = {}): any
     return null;
   }
 
-  return parseTSONString(raw, { ...options, filePath });
+  return parseTSONString(raw, { ...options, filePath, baseDir: path.dirname(filePath) });
 }
 
 /**
@@ -85,9 +103,14 @@ export function parseTSONString(
   content: string, 
   options: TSONParseOptions & { filePath?: string } = {}
 ): any {
-  const { allowTrailingCommas = true, allowComments = true, allowConst = true, allowImports = true, strict = false, filePath } = options;
+  const { allowTrailingCommas = true, allowComments = true, allowConst = true, allowImports = true, allowTSONImports = true, strict = false, filePath, baseDir = process.cwd() } = options;
 
   let cleaned = content;
+
+  // Process TSON imports first (before removing regular imports)
+  if (allowTSONImports) {
+    cleaned = processTSONImports(cleaned, { baseDir, filePath, strict });
+  }
 
   // Remove import statements if enabled
   if (allowImports) {
@@ -122,6 +145,79 @@ export function parseTSONString(
     console.error(`${errorMessage}`);
     return null;
   }
+}
+
+/**
+ * Process TSON imports and merge data
+ */
+function processTSONImports(text: string, options: { baseDir: string; filePath?: string; strict: boolean }): string {
+  const { baseDir, filePath, strict } = options;
+  const lines = text.split('\n');
+  const result: string[] = [];
+  const importedData: { [key: string]: any } = {};
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    // Match TSON import statements: import tsonData from "./file.tson";
+    const tsonImportMatch = trimmed.match(/^import\s+(\w+)\s+from\s+["']([^"']+\.tson)["'];?$/);
+    if (tsonImportMatch) {
+      const [, varName, importPath] = tsonImportMatch;
+      try {
+        // Resolve the import path
+        const resolvedPath = path.isAbsolute(importPath as string)
+          ? importPath 
+          : path.resolve(baseDir, importPath as string);
+        
+        // Ensure the file exists before trying to parse
+        if (!fs.existsSync(resolvedPath as string)) {
+          const error = new TSONParseError(
+            `TSON import file not found: "${importPath}" (resolved to: ${resolvedPath})`,
+            filePath
+          );
+          if (strict) throw error;
+          console.error(error.message);
+          result.push(''); // Keep line structure
+          continue;
+        }
+        
+        // Parse the imported TSON file
+        const importedContent = parseTSON(resolvedPath as string, {
+          allowTrailingCommas: true,
+          allowComments: true,
+          allowConst: true,
+          allowImports: true,
+          allowTSONImports: true,
+          strict,
+          baseDir: path.dirname(resolvedPath as string)
+        });
+        
+        if (importedContent !== null) {
+          if (varName) {
+            importedData[varName] = importedContent;
+          }
+        }
+      } catch (err) {
+        const error = new TSONParseError(
+          `Failed to import TSON file "${importPath}": ${getErrorMessage(err)}`,
+          filePath
+        );
+        if (strict) throw error;
+        console.error(error.message);
+      }
+      result.push(''); // Keep line structure
+    } else {
+      // Replace TSON import references with their values
+      let processedLine = line;
+      for (const [varName, data] of Object.entries(importedData)) {
+        const regex = new RegExp(`\\b${varName}\\b`, 'g');
+        processedLine = processedLine.replace(regex, JSON.stringify(data));
+      }
+      result.push(processedLine);
+    }
+  }
+  
+  return result.join('\n');
 }
 
 /**
@@ -305,6 +401,131 @@ export function stringifyTSON(
   return result;
 }
 
+/**
+ * Compile a TSON file to JSON for production
+ * 
+ * @param inputPath Path to the input TSON file
+ * @param options Compilation options
+ * @returns Path to the compiled JSON file
+ */
+export function compileTSONToJSON(inputPath: string, options: TSONCompileOptions = {}): string {
+  const {
+    outputDir = path.dirname(inputPath),
+    minify = false,
+    preserveComments = false,
+    outputExtension = '.json'
+  } = options;
+
+  // Parse the TSON file
+  const parsedData = parseTSON(inputPath, { strict: true });
+  
+  if (parsedData === null) {
+    throw new TSONParseError(`Failed to parse TSON file: ${inputPath}`);
+  }
+
+  // Generate output path
+  const inputName = path.basename(inputPath, path.extname(inputPath));
+  const outputPath = path.join(outputDir, inputName + outputExtension);
+
+  // Ensure output directory exists
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  // Stringify the data
+  const jsonContent = minify 
+    ? JSON.stringify(parsedData)
+    : JSON.stringify(parsedData, null, 2);
+
+  // Write the JSON file
+  fs.writeFileSync(outputPath, jsonContent, 'utf-8');
+
+  // Preserve comments in a separate meta file if requested
+  if (preserveComments) {
+    const metaPath = path.join(outputDir, inputName + '.meta.json');
+    const originalContent = fs.readFileSync(inputPath, 'utf-8');
+    const comments = extractComments(originalContent);
+    
+    if (comments.length > 0) {
+      const metaData = {
+        sourceFile: inputPath,
+        compiledAt: new Date().toISOString(),
+        comments
+      };
+      fs.writeFileSync(metaPath, JSON.stringify(metaData, null, 2), 'utf-8');
+    }
+  }
+
+  return outputPath;
+}
+
+/**
+ * Compile multiple TSON files to JSON
+ * 
+ * @param inputPaths Array of input TSON file paths
+ * @param options Compilation options
+ * @returns Array of output JSON file paths
+ */
+export function compileTSONFiles(inputPaths: string[], options: TSONCompileOptions = {}): string[] {
+  return inputPaths.map(inputPath => compileTSONToJSON(inputPath, options));
+}
+
+/**
+ * Extract comments from TSON content for preservation
+ */
+function extractComments(content: string): Array<{ line: number; text: string }> {
+  const lines = content.split('\n');
+  const comments: Array<{ line: number; text: string }> = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const commentMatch = line?.match(/\/\/\s*(.*)$/);
+    if (commentMatch) {
+      comments.push({
+        line: i + 1,
+        text: commentMatch[1]?.trim() ?? ''
+      });
+    }
+  }
+  
+  return comments;
+}
+
+/**
+ * Watch a TSON file and automatically compile to JSON on changes
+ * 
+ * @param inputPath Path to the TSON file to watch
+ * @param options Compilation options
+ * @returns Function to stop watching
+ */
+export function watchTSONFile(inputPath: string, options: TSONCompileOptions = {}): () => void {
+  let isCompiling = false;
+  
+  const compile = () => {
+    if (isCompiling) return;
+    isCompiling = true;
+    
+    try {
+      const outputPath = compileTSONToJSON(inputPath, options);
+      console.log(`Compiled ${inputPath} -> ${outputPath}`);
+    } catch (err) {
+      console.error(`Failed to compile ${inputPath}:`, getErrorMessage(err));
+    } finally {
+      isCompiling = false;
+    }
+  };
+  
+  // Initial compilation
+  compile();
+  
+  // Watch for changes
+  const watcher = fs.watchFile(inputPath, { interval: 1000 }, compile);
+  
+  return () => {
+    fs.unwatchFile(inputPath, compile);
+  };
+}
+
 // Type guard for checking if an error is a TSONParseError
 export function isTSONParseError(error: any): error is TSONParseError {
   return error instanceof TSONParseError;
@@ -316,6 +537,9 @@ export default {
   parseString: parseTSONString,
   stringify: stringifyTSON,
   validate: validateTSON,
+  compile: compileTSONToJSON,
+  compileFiles: compileTSONFiles,
+  watch: watchTSONFile,
   TSONParseError,
   isTSONParseError
 };
