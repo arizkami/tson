@@ -1,6 +1,5 @@
 # TSON - TypeScript Object Notation
 
-[![npm version](https://badge.fury.io/js/tson.svg)](https://badge.fury.io/js/tson)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
 
